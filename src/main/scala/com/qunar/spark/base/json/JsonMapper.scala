@@ -15,7 +15,7 @@ import com.google.common.base.Preconditions
   * 2. JsonMapper变成静态Object,且只使用默认JsonFeature配置,方便外部直接调用而免去注入的过程,
   * 但同时保留定制化的接口以及工厂注入的功能
   */
-private[jackson] object JsonMapper extends Serializable {
+object JsonMapper extends Serializable {
 
   // 默认JsonFeature模板的ObjectMapperBuilder
   private val mapper: ObjectMapper = MapperBuilder.create.buildDefault

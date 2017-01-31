@@ -1,4 +1,4 @@
-package com.qunar.spark.base.properties
+package com.qunar.spark.base.resources
 
 import com.typesafe.config.{Config, ConfigFactory}
 

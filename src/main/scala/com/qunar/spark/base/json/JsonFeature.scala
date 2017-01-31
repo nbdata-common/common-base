@@ -11,7 +11,7 @@ import scala.language.implicitConversions
   * 用于标记可编辑的json特性
   * copied from qunar.common.api by @miao.yang and customize it
   */
-private[jackson] object JsonFeature extends Enumeration {
+object JsonFeature extends Enumeration {
 
   type JsonFeature = Value
 

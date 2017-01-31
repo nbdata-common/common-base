@@ -12,26 +12,26 @@ import JsonFeature.JsonFeatureValue
   * 定制ObjectMapper的工厂
   * copied from qunar.common.api by @miao.yang and customize it
   */
-private[jackson] class MapperBuilder extends Serializable {
+class MapperBuilder extends Serializable {
 
   private var buildFeature = MapperBuilder.defaultFeatures
 
-  def enable(jf: JsonFeatureValue): MapperBuilder = {
+  def enable(jf: JsonFeatureValue): this.type = {
     buildFeature = jf.enable(buildFeature)
     this
   }
 
-  def disable(jf: JsonFeatureValue): MapperBuilder = {
+  def disable(jf: JsonFeatureValue): this.type = {
     buildFeature = jf.disable(buildFeature)
     this
   }
 
-  def configure(jf: JsonFeatureValue, state: Boolean): MapperBuilder = {
+  def configure(jf: JsonFeatureValue, state: Boolean): this.type = {
     if (state) enable(jf) else disable(jf)
     this
   }
 
-  def configure(enabled: Array[JsonFeatureValue], disabled: Array[JsonFeatureValue]): MapperBuilder = {
+  def configure(enabled: Array[JsonFeatureValue], disabled: Array[JsonFeatureValue]): this.type = {
     for (jf <- enabled) {
       enable(jf)
     }
@@ -52,7 +52,7 @@ private[jackson] class MapperBuilder extends Serializable {
 
 }
 
-private[jackson] object MapperBuilder extends Serializable {
+object MapperBuilder extends Serializable {
 
   def create: MapperBuilder = new MapperBuilder
 

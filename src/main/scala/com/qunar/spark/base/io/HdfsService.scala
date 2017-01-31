@@ -6,7 +6,6 @@ import com.google.common.base.{Preconditions, Strings}
 import com.hadoop.compression.lzo.LzopCodec
 import com.hadoop.mapreduce.LzoTextInputFormat
 import com.qunar.spark.base.io.HdfsFileType.HdfsFileType
-import com.qunar.spark.base.log.Logging
 import org.apache.commons.lang3.StringUtils
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.spark.SparkContext
@@ -17,7 +16,7 @@ import org.springframework.stereotype.Service
   * Hdfs读写简单封装
   */
 @Service
-class HdfsService extends Serializable with Logging {
+class HdfsService extends Serializable {
 
   @Resource
   private var context: SparkContext = _
@@ -25,14 +24,13 @@ class HdfsService extends Serializable with Logging {
   /* 读Hdfs的封装 */
 
   def readFromHdfs(path: String, hdfsFileType: HdfsFileType): RDD[String] = {
-    Preconditions.checkArgument(Strings.isNullOrEmpty(path), "hdfs path is null")
+    Preconditions.checkArgument(Strings.isNullOrEmpty(path), "hdfs path is null": Any)
+    Preconditions.checkNotNull(hdfsFileType)
+
     hdfsFileType match {
       case HdfsFileType.TEXT => readFromText(path)
       case HdfsFileType.GZIP => readFromText(path)
       case HdfsFileType.LZO => readFromLzo(path)
-      case _ =>
-        logError(s"neither HdfsFileType match $hdfsFileType")
-        context.emptyRDD
     }
   }
 
@@ -46,12 +44,12 @@ class HdfsService extends Serializable with Logging {
 
   /* 写Hdfs的封装 */
 
-  def writeToHdfs[T](content: RDD[T], serialize: T => String, path: String, hdfsFileType: HdfsFileType)(partition: Int): Unit = {
+  def writeToHdfs[T](content: RDD[T], serialize: T => String, path: String, hdfsFileType: HdfsFileType, partition: Int = 1000): Unit = {
     val result = content.map(e => serialize(e))
-    writeToHdfs(result, path, hdfsFileType)(partition)
+    writeToHdfs(result, path, hdfsFileType, partition)
   }
 
-  def writeToHdfs(content: RDD[String], path: String, hdfsFileType: HdfsFileType)(partition: Int): Unit = {
+  def writeToHdfs(content: RDD[String], path: String, hdfsFileType: HdfsFileType, partition: Int = 1000): Unit = {
     val cleanContent = content.filter(StringUtils.isNotBlank)
     val adjustContent = partitionAdjustment(cleanContent, partition)
     Preconditions.checkNotNull(path)
@@ -59,7 +57,6 @@ class HdfsService extends Serializable with Logging {
       case HdfsFileType.TEXT => writeAsText(adjustContent, path)
       case HdfsFileType.GZIP => writeAsText(adjustContent, path)
       case HdfsFileType.LZO => writeAsLzo(adjustContent, path)
-      case _ => logError(s"neither HdfsFileType match $hdfsFileType")
     }
   }
 
