@@ -119,20 +119,32 @@ object HdfsService extends Serializable with Logging {
     }
   }
 
-  def create(path: Path): FSDataOutputStream = fs.create(path)
+  def create(path: Path): FSDataOutputStream = {
+    try fs.create(path)
+    catch {
+      case e: IOException =>
+        logError(s"create path = $path error:", e)
+        null
+    }
+  }
 
   /**
     * 将内容写进给定的path
     */
-  def writeContentToPath(path: Path, content: String) = {
+  def writeContentToPath(path: Path, content: String): Boolean = {
     var outputStream: FSDataOutputStream = null
     if (!fs.exists(path))
       outputStream = fs.create(path)
     else
       outputStream = fs.append(path)
-    try outputStream.write(content.getBytes())
+    try {
+      outputStream.write(content.getBytes())
+      true
+    }
     catch {
-      case e: IOException => logError(s"write content = $content to path = $path error:", e)
+      case e: IOException =>
+        logError(s"write content = $content to path = $path error:", e)
+        false
     }
   }
 
