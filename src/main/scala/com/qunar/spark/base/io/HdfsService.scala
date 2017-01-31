@@ -1,100 +1,164 @@
 package com.qunar.spark.base.io
 
-import javax.annotation.Resource
+import java.io.{BufferedReader, IOException, InputStream, InputStreamReader}
+import java.util
+import java.util.zip.GZIPInputStream
 
-import com.google.common.base.{Preconditions, Strings}
-import com.hadoop.compression.lzo.LzopCodec
-import com.hadoop.mapreduce.LzoTextInputFormat
-import com.qunar.spark.base.io.HdfsFileType.HdfsFileType
-import org.apache.commons.lang3.StringUtils
-import org.apache.hadoop.io.{LongWritable, Text}
-import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
-import org.springframework.stereotype.Service
+import com.google.common.collect.Lists
+import com.qunar.spark.base.log.Logging
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs._
 
 /**
-  * Hdfs读写简单封装
+  * 针对[[org.apache.hadoop.fs.FileSystem]]的hdfs读写简单封装
   */
-@Service
-class HdfsService extends Serializable {
+object HdfsService extends Serializable with Logging {
 
-  @Resource
-  private var context: SparkContext = _
+  private val conf = new Configuration()
 
-  /* 读Hdfs的封装 */
+  private val fs = FileSystem.get(conf)
 
-  def readFromHdfs(path: String, hdfsFileType: HdfsFileType): RDD[String] = {
-    Preconditions.checkArgument(Strings.isNullOrEmpty(path), "hdfs path is null": Any)
-    Preconditions.checkNotNull(hdfsFileType)
-
-    hdfsFileType match {
-      case HdfsFileType.TEXT => readFromText(path)
-      case HdfsFileType.GZIP => readFromText(path)
-      case HdfsFileType.LZO => readFromLzo(path)
+  def listDirectory(path: Path): util.ArrayList[Path] = {
+    val fileStatuses: Array[FileStatus] = fs.listStatus(path)
+    val ret = Lists.newArrayList[Path]()
+    for (fileStatus <- fileStatuses) {
+      ret.add(fileStatus.getPath)
     }
+    ret
   }
 
-  private def readFromLzo(path: String): RDD[String] = {
-    context.newAPIHadoopFile[LongWritable, Text, LzoTextInputFormat](path).map(e => e._2.toString)
-  }
-
-  private def readFromText(path: String): RDD[String] = {
-    context.textFile(path)
-  }
-
-  /* 写Hdfs的封装 */
-
-  def writeEntityToHdfs[T](content: RDD[T], serialize: T => String, path: String, hdfsFileType: HdfsFileType)
-                          (partition: Int = 1000): Unit = {
-    val result = content.map(e => serialize(e))
-    writeStrToHdfs(result, path, hdfsFileType)(partition)
-  }
-
-  def writeStrToHdfs(content: RDD[String], path: String, hdfsFileType: HdfsFileType)
-                    (partition: Int = 1000): Unit = {
-    val cleanContent = content.filter(StringUtils.isNotBlank)
-    val adjustContent = partitionAdjustment(cleanContent, partition)
-    Preconditions.checkNotNull(path)
-    hdfsFileType match {
-      case HdfsFileType.TEXT => writeAsText(adjustContent, path)
-      case HdfsFileType.GZIP => writeAsText(adjustContent, path)
-      case HdfsFileType.LZO => writeAsLzo(adjustContent, path)
+  def isDirectory(path: Path): Boolean = {
+    try fs.isDirectory(path)
+    catch {
+      case e: IOException =>
+        logError(s"error during isDirectory:$path", e)
+        false
     }
   }
 
   /**
-    * 分区调整
+    * zcat the given file, extract the first limit lines.
+    *
+    * @param path  The file path of the gzip file.
+    * @param limit The number of lines to extract. 0 means all lines.
+    * @return The first limit lines of the given file.
     */
-  private def partitionAdjustment(content: RDD[String], partition: Int): RDD[String] = {
-    //分区前后缩放比例
-    val rate = partition / content.partitions.length
-    /*
-    * 如果分区缩小且缩小比例小于1个数量级,则可以不用shuffle
-    * 否则(包括分区扩大)需要shuffle
+  def zcatPipeHead(path: Path, limit: Int): util.ArrayList[String] = {
+    var reader: BufferedReader = null
+    val ret = Lists.newArrayList[String]()
+    try {
+      reader = new BufferedReader(
+        new InputStreamReader(new GZIPInputStream(fs.open(path))))
+      if (limit == 0) {
+        var line: String = reader.readLine()
+        while (line != null) {
+          logInfo(s"read line: $line")
+          line = reader.readLine()
+        }
+        ret.add("check log")
+      } else {
+        for (i <- 0 until limit) {
+          val line: String = reader.readLine()
+          if (line == null) {
+            //break
+          }
+          ret.add(line)
+        }
+      }
+    } catch {
+      case e: IOException => logError("zcatPipeHead failed: {}", e)
+    } finally try if (reader != null) reader.close()
+    catch {
+      case e: IOException => logError("close reader failed: {}", e)
+    }
+    ret
+  }
+
+  def catPipeHead(path: Path, limit: Int): util.ArrayList[String] = {
+    var reader: BufferedReader = null
+    val ret = Lists.newArrayList[String]()
+    try {
+      reader = new BufferedReader(new InputStreamReader(fs.open(path)))
+      if (limit == 0) {
+        var line: String = reader.readLine()
+        while (line != null) {
+          ret.add(line)
+          //logger.info("read line: {}", line);
+          line = reader.readLine()
+        }
+      } else {
+        for (i <- 0 until limit) {
+          val line: String = reader.readLine()
+          if (line == null) {
+            //break
+          }
+          ret.add(line)
+        }
+      }
+    } catch {
+      case e: Exception => logError("catPipeHead failed:", e)
+    } finally try if (reader != null) reader.close()
+    catch {
+      case e: Exception => logError("close reader failed: {}", e)
+    }
+    ret
+  }
+
+  /**
+    * Opens an HDFS file as InputStream.
+    *
+    * @param path Path to the file.
+    * @return The InputStream for the given file.
+    * @throws IOException Opening the HDFS file can throw IOException.
     */
-    rate match {
-      case r if r > 0.1 || r < 1 => content.coalesce(partition, shuffle = false)
-      case _ => content.repartition(partition)
+  def open(path: Path): InputStream = {
+    if (path.getName.endsWith(".gz")) {
+      new GZIPInputStream(fs.open(path))
+    } else {
+      fs.open(path)
     }
   }
 
-  private def writeAsText(content: RDD[String], path: String): Unit = {
-    content.saveAsTextFile(path)
-  }
-
-  private def writeAsLzo(content: RDD[String], path: String): Unit = {
-    content.saveAsTextFile(path, classOf[LzopCodec])
-  }
-
-}
-
-object HdfsFileType extends Enumeration {
-
-  type HdfsFileType = Value
+  def create(path: Path): FSDataOutputStream = fs.create(path)
 
   /**
-    * Hdfs的文件类型(普通文本, lzo, gz)
+    * 将内容写进给定的path
     */
-  val TEXT, LZO, GZIP = Value
+  def writeContentToPath(path: Path, content: String) = {
+    var outputStream: FSDataOutputStream = null
+    if (!fs.exists(path))
+      outputStream = fs.create(path)
+    else
+      outputStream = fs.append(path)
+    try outputStream.write(content.getBytes())
+    catch {
+      case e: IOException => logError(s"write content = $content to path = $path error:", e)
+    }
+  }
+
+  /**
+    * hadoop fs -cp <src> <dst>
+    *
+    * @return if action is successful
+    */
+  def copy(src: Path, dst: Path): Boolean = {
+    try FileUtil.copy(fs, src, fs, dst, false, new Configuration())
+    catch {
+      case e: IOException =>
+        logError(s"copy from $src to $dst failed:", e)
+        false
+    }
+  }
+
+  def delete(path: Path, recursive: Boolean): Boolean = {
+    try fs.delete(path, recursive)
+    catch {
+      case e: IOException =>
+        logError(s"delete file failed:$path", e)
+        false
+    }
+  }
+
+  def close() = fs.close()
 
 }
