@@ -44,12 +44,14 @@ class HdfsService extends Serializable {
 
   /* 写Hdfs的封装 */
 
-  def writeToHdfs[T](content: RDD[T], serialize: T => String, path: String, hdfsFileType: HdfsFileType, partition: Int = 1000): Unit = {
+  def writeEntityToHdfs[T](content: RDD[T], serialize: T => String, path: String, hdfsFileType: HdfsFileType)
+                          (partition: Int = 1000): Unit = {
     val result = content.map(e => serialize(e))
-    writeToHdfs(result, path, hdfsFileType, partition)
+    writeStrToHdfs(result, path, hdfsFileType)(partition)
   }
 
-  def writeToHdfs(content: RDD[String], path: String, hdfsFileType: HdfsFileType, partition: Int = 1000): Unit = {
+  def writeStrToHdfs(content: RDD[String], path: String, hdfsFileType: HdfsFileType)
+                    (partition: Int = 1000): Unit = {
     val cleanContent = content.filter(StringUtils.isNotBlank)
     val adjustContent = partitionAdjustment(cleanContent, partition)
     Preconditions.checkNotNull(path)
