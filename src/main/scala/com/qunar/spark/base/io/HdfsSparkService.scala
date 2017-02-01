@@ -8,13 +8,16 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
 
 /**
   * 针对Spark的Hdfs读写简单封装
   */
-class HdfsSparkService extends Serializable {
+object HdfsSparkService extends Serializable {
 
-  private var context: SparkContext = _
+  private val session = SparkSession.builder.getOrCreate
+
+  private var context: SparkContext = session.sparkContext
 
   /* 读Hdfs的封装 */
 
